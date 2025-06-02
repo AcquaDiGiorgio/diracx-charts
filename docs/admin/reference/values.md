@@ -1,80 +1,3 @@
-# Helm chart for DiracX
-
-This helm chart is intended to be used in two ways:
-
- * Development: The ./run_demo.sh script allows the infrastructure to be ran locally with docker+kind
- * Production: TODO
-
-![Version: 0.1.0-alpha.2](https://img.shields.io/badge/Version-0.1.0--alpha.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.1a](https://img.shields.io/badge/AppVersion-0.0.1a-informational?style=flat-square)
-
-![DiracX Chart tests](https://github.com/DIRACGrid/diracx-charts/actions/workflows/main.yml/badge.svg?branch=master)
-
-## Workflow
-
-This chart can be used for 4 different installation type:
-
-* demo/dev: we install everything and configure everything with pre-configured values (see [below](##running_locally))
-* prod: you already have a DIRAC installation with it's own DBs and everything, so you want to create a cluster, but bridge on existing external resources (like DBs)
-* New: you start from absolutely nothing (no DIRAC), and you want to install all the dependencies
-* New without dependencies: you start with nothing, but you want to use externally managed resources (like DB provided by your IT service)
-
-Depending on the installation you perform, some tasks may be necessary or not. The bottom line is that to simplify the various cases, we want to be able to always run the initialization steps (like DB initialization, or CS initialization) but they should be adiabatic and non destructive.
-
-To understand how the chart operates, see [reference](./docs/REFERENCE.md)
-
-## What this chart contains
-
-This chart contains the deployment for ``diracx`` and ``diracx-web``, as well as dependencies:
-* Mysql database
-* OpenSearch database
-* Dex and IAM as identity provider
-* Minio as an object store for the ``SandboxStore``
-* OpenTelemetry (see [details](#opentelemetry))
-
-## Deploying in production
-
-TODO: Link to k3s
-
-TODO: Explain how to download the values from helm
-
-TODO: add info about diracx-web
-
-### Deploying a custom branch to DIRAC certification
-
-Apply the following on top of the standard `values.yaml` file, replacing `USERNAME` and `BRANCH_NAME` with the appropriate values.
-
-```yaml
-global:
-  images:
-    tag: "dev"
-    # TODO: We should use the base images here but pythonModulesToInstall would need to be split
-    services: ghcr.io/diracgrid/diracx/services
-    client: ghcr.io/diracgrid/diracx/client
-
-diracx:
-  pythonModulesToInstall:
-    - "git+https://github.com/USERNAME/diracx.git@BRANCH_NAME#egg=diracx_core&subdirectory=diracx-core"
-    - "git+https://github.com/USERNAME/diracx.git@BRANCH_NAME#egg=diracx_db&subdirectory=diracx-db"
-    - "git+https://github.com/USERNAME/diracx.git@BRANCH_NAME#egg=diracx_routers&subdirectory=diracx-routers"yaml
-```
-
-## OpenTelemetry
-
-> :warning: **Experimental**: opentelemetry is an evolving product, and so is our implementation of it.
-
-``diracx`` aim at relying on [OpenTelemetry](https://opentelemetry.io/) for traces, monitoring and logging. When running in demo mode, this chart can spawn the necessary component for the telemetry to be reported:
-* OpenTelemetry-collector to collect all the data
-* Prometheus for the metrics
-* Jaeger for traces
-* ElasticSearch for logs (OpenSearch not yet supported)
-* Grafana to display all that (accessible on port 32004 of the demo)
-
-To enable it, run ``run_demo.sh`` with ``enable-open-telemetry``
-
-Note that this configuration is trivial and does not follow production recommandations (like using batch processing)
-
-![OTEL collector configuration](./demo/otel-collector.png)
-
 ## Requirements
 
 | Repository | Name | Version |
@@ -107,9 +30,10 @@ Note that this configuration is trivial and does not follow production recommand
 | developer.enabled | bool | `true` |  |
 | developer.ipAlias | string | `nil` | The IP that the demo is running at |
 | developer.localCSPath | string | `"/local_cs_store"` | If set, mount the CS stored localy instead of initializing a default one |
-| developer.mountedNodeModuleToInstall | string | `nil` | List of node modules to install |
+| developer.mountedNodeModuleToInstall | string | `nil` | Node module to install |
 | developer.mountedPythonModulesToInstall | list | `[]` | List of packages which are mounted into developer.sourcePath and should be installed with pip install SOURCEPATH/... |
 | developer.nodeImage | string | `"node:alpine"` | Image to use for the webapp if nodeModuleToInstall is set |
+| developer.nodeWorkspacesDirectories | list | `[]` | List of node workspace directories to manage in the diracx-web container (node_modules) |
 | developer.offline | bool | `false` | Make it possible to launch the demo without having an internet connection |
 | developer.sourcePath | string | `"/diracx_source"` | Path from which to mount source of DIRACX |
 | developer.urls | object | `{}` | URLs which can be used to access various components of the demo (diracx, minio, dex, etc). They are used by the diracx tests |
@@ -165,6 +89,8 @@ Note that this configuration is trivial and does not follow production recommand
 | global.activeDeadlineSeconds | int | `900` | timeout for job deadlines |
 | global.batchJobTTL | int | `600` | How long should batch jobs be retained after completing? |
 | global.imagePullPolicy | string | `"Always"` |  |
+| global.images.busybox.repository | string | `"busybox"` |  |
+| global.images.busybox.tag | string | `"latest"` |  |
 | global.images.client | string | `"ghcr.io/diracgrid/diracx/client"` |  |
 | global.images.services | string | `"ghcr.io/diracgrid/diracx/services"` |  |
 | global.images.tag | string | `"dev"` |  |
@@ -196,6 +122,10 @@ Note that this configuration is trivial and does not follow production recommand
 | grafana.service.nodePort | int | `32004` |  |
 | grafana.service.port | int | `32004` |  |
 | grafana.service.type | string | `"NodePort"` |  |
+| grafana.sidecar.dashboards.enabled | bool | `true` |  |
+| grafana.sidecar.dashboards.folder | string | `"/var/lib/grafana/dashboards/default"` |  |
+| grafana.sidecar.dashboards.label | string | `"grafana_dashboard"` |  |
+| grafana.sidecar.dashboards.labelValue | string | `"1"` |  |
 | indigoiam.config.initial_client.id | string | `nil` |  |
 | indigoiam.config.initial_client.secret | string | `nil` |  |
 | indigoiam.config.issuer | string | `"http://anything:32003"` |  |
@@ -209,7 +139,7 @@ Note that this configuration is trivial and does not follow production recommand
 | ingress.className | string | `"nginx"` |  |
 | ingress.enabled | bool | `true` |  |
 | ingress.tlsSecretName | string | `"myingress-cert"` |  |
-| initCs.enabled | bool | `true` |  |
+| initKeyStore.enabled | bool | `true` |  |
 | initOs.enabled | bool | `true` |  |
 | initSecrets.enabled | bool | `true` |  |
 | initSecrets.rbac.create | bool | `true` |  |
@@ -261,6 +191,7 @@ Note that this configuration is trivial and does not follow production recommand
 | opentelemetry-collector.config.exporters.otlp/jaeger.tls.insecure | bool | `true` |  |
 | opentelemetry-collector.config.exporters.prometheus.endpoint | string | `":8889"` |  |
 | opentelemetry-collector.config.exporters.prometheus.metric_expiration | string | `"180m"` |  |
+| opentelemetry-collector.config.exporters.prometheus.resource_to_telemetry_conversion.enabled | bool | `true` |  |
 | opentelemetry-collector.config.exporters.prometheus.send_timestamps | bool | `true` |  |
 | opentelemetry-collector.config.receivers.jaeger | string | `nil` |  |
 | opentelemetry-collector.config.receivers.otlp.protocols.grpc | string | `nil` |  |
@@ -307,6 +238,7 @@ Note that this configuration is trivial and does not follow production recommand
 | rabbitmq.enabled | bool | `true` |  |
 | rabbitmq.podSecurityContext.enabled | bool | `false` |  |
 | replicaCount | int | `1` |  |
+| replicaCountWeb | int | `1` |  |
 | securityContext | object | `{}` |  |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the service account |
 | serviceAccount.create | bool | `true` | Specifies whether a service account should be created |

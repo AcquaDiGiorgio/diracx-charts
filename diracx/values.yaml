@@ -18,11 +18,17 @@ global:
     tag: "dev"
     services: ghcr.io/diracgrid/diracx/services
     client: ghcr.io/diracgrid/diracx/client
+    busybox:
+      tag: "latest"
+      repository: "busybox"
     web:
       tag: "dev"
       repository: ghcr.io/diracgrid/diracx-web/static
 
+# Number of diracx pods
 replicaCount: 1
+# Number of web pods
+replicaCountWeb: 1
 
 # Created with
 # kubectl create secret generic regcred \
@@ -52,6 +58,7 @@ podSecurityContext:
 
 securityContext:
   {}
+  # fsGroup: 2000
   # capabilities:
   #   drop:
   #   - ALL
@@ -60,10 +67,6 @@ securityContext:
   # runAsUser: 1000
 
 #################
-
-initCs:
-  # Automatically initialize the repository in the CS volume
-  enabled: true
 
 initSecrets:
   enabled: true
@@ -82,6 +85,9 @@ initSql:
 initOs:
   enabled: true
 
+initKeyStore:
+  enabled: true
+
 developer:
   enabled: true
   # -- Make it possible to launch the demo without having an internet connection
@@ -96,8 +102,10 @@ developer:
   # -- Use pip install -e for mountedPythonModulesToInstall
   # This is used by the integration tests because editable install might behave differently
   editableMountedPythonModules: true
-  # -- List of node modules to install
+  # -- Node module to install
   mountedNodeModuleToInstall: null
+  # -- List of node workspace directories to manage in the diracx-web container (node_modules)
+  nodeWorkspacesDirectories: []
   # -- Image to use for the webapp if nodeModuleToInstall is set
   nodeImage: node:alpine
   # -- Enable collection of coverage reports (intended for CI usage only)
@@ -120,7 +128,7 @@ diracx:
     # which must be present on all the servers
     #TODO: autogenerate all of these
     DIRACX_CONFIG_BACKEND_URL: "git+file:///cs_store/initialRepo"
-    DIRACX_SERVICE_AUTH_TOKEN_KEY: "file:///signing-key/rsa256.key"
+    DIRACX_SERVICE_AUTH_TOKEN_KEYSTORE: "file:///keystore/jwks.json"
     DIRACX_SERVICE_AUTH_ALLOWED_REDIRECTS: '["http://anything:8000/docs/oauth2-redirect"]'
 
   # If mysql is enabled, you are not allowed
@@ -155,6 +163,7 @@ diracx:
     # -- Which DiracX OpenSearch DBs are used?
     dbs:
       # JobParametersDB:
+      # PilotLogsDB:
 
   # -- List of install specifications to pass to pip before launching each container
   pythonModulesToInstall: []
@@ -174,6 +183,13 @@ diracxWeb:
   # -- install specification to pass to npm before launching container
   repoURL: ""
   branch: ""
+  # -- resources to use for building the webapp if diracxWeb.repoURL is set
+  # installDiracxWeb:
+  #   resources:
+  #    requests:
+  #      memory: 512Mi
+  #    limits:
+  #      memory: 1Gi
 
 ##########################
 
@@ -474,8 +490,8 @@ opentelemetry-collector:
         #   cst_label1: value1
         send_timestamps: true
         metric_expiration: 180m
-        #resource_to_telemetry_conversion:
-        #  enabled: true
+        resource_to_telemetry_conversion:
+          enabled: true
 
       # prometheusremotewrite:
       #   endpoint: "http://diracx-demo-prometheus-pushgateway:9091/api/v1/push"
@@ -571,6 +587,15 @@ grafana:
     type: NodePort
     port: 32004
     nodePort: 32004
+
+  # TODO: we currently cannot load the dashboards using the "dashboards" section, which would be much simpler,
+  # because of https://github.com/grafana/helm-charts/issues/27
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      folder: /var/lib/grafana/dashboards/default
 
   # data source jaeger with url http://diracx-demo-jaeger-query:16686
   # https://grafana.com/docs/grafana/latest/datasources/jaeger/#provision-the-data-source

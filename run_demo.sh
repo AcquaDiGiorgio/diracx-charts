@@ -8,6 +8,12 @@ PARTY_EMOJI='\xF0\x9F\x8E\x89'
 INFO_EMOJI='\xE2\x84\xB9\xEF\xB8\x8F'
 WARN_EMOJI='\xE2\x9A\xA0\xEF\xB8\x8F'
 
+if [ "$EUID" -eq 0 ]
+  then printf "%b Do not run this script as root\n" "${SKULL_EMOJI}"
+  exit 1
+fi
+
+
 script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 tmp_dir=$(mktemp -d)
@@ -258,6 +264,7 @@ done
 declare -a pkg_dirs=()
 declare -a python_pkg_names=()
 node_pkg_name=""
+declare -a node_pkg_workspaces=()
 declare -a diracx_and_extensions_pkgs=()
 
 for src_dir in "$@"; do
@@ -276,7 +283,7 @@ for src_dir in "$@"; do
 
       # Do we find subdirectories called the same way as the package
       if [ -n "$(find "${src_dir}" -mindepth 3 -maxdepth 3 -type d  -path "*src/${pkg_name}")" ]; then
-      # And are there mulftiple pyprojects
+      # And are there multiple pyprojects
         if [ -n "$(find "${src_dir}" -mindepth 2 -maxdepth 2 -type f  -name "pyproject.toml")" ]; then
           # Then let's add all these
           while IFS= read -r  sub_pkg_dir
@@ -284,8 +291,8 @@ for src_dir in "$@"; do
             diracx_and_extensions_pkgs+=("$(basename "${src_dir}")/$(basename "${sub_pkg_dir}")");
           done < <(find "${src_dir}" -mindepth 1 -maxdepth 1 -type d -name "${pkg_name}-*" )
 
-          continue;
-        fi;
+          continue
+        fi
       fi
 
   fi
@@ -310,11 +317,26 @@ for src_dir in "$@"; do
   fi
 
   # Node packages: we keep a single package, the last one found
+  node_pkg_path=""
   while IFS='' read -r pkg_json; do
-    node_pkg_name="$(basename "$(dirname "${pkg_json}")")"
+    node_pkg_path=$src_dir
   done < <(find "$src_dir" -mindepth 1 -maxdepth 1 -type f -name 'package.json')
-done
+  node_pkg_name="$(basename "${node_pkg_path}")"
 
+  pkg_json="${node_pkg_path}/package.json"
+
+  # Check for workspaces in the package.json
+  if [ "$(jq -e ".workspaces | type== \"array\"" "$pkg_json")" == "true" ]; then
+    readarray -t node_pkg_workspaces < <(jq -r ".workspaces[]" "$pkg_json")
+    node_pkg_workspaces=("${node_pkg_workspaces[@]}")
+  fi
+
+  # Ensure node_modules exist, else create them, as volumes will be mounted there
+  mkdir -p "${node_pkg_path}"/node_modules
+  for workspace in "${node_pkg_workspaces[@]}"; do
+    mkdir -p "${node_pkg_path}/${workspace}"/node_modules
+  done
+done
 
 if [ ${#diracx_and_extensions_pkgs[@]} -gt 0 ]; then
   printf "%b Found Diracx/Extensions package directories for: %s\n" ${UNICORN_EMOJI} "${diracx_and_extensions_pkgs[*]}"
@@ -323,9 +345,10 @@ if [ ${#python_pkg_names[@]} -gt 0 ]; then
   printf "%b Found Python package directories for: %s\n" ${UNICORN_EMOJI} "${python_pkg_names[*]}"
 fi
 if [ "${node_pkg_name}" != "" ]; then
-  printf "%b Found Node package directories for: %s\n" ${UNICORN_EMOJI} "${node_pkg_name}"
-  # Ensure node_modules and .next exist, else create them, as volumes will be mounted there
-  mkdir -p "${node_pkg_name}"/node_modules "${node_pkg_name}"/.next
+  printf "%b Found Node package directory for: %s\n" ${UNICORN_EMOJI} "${node_pkg_name}"
+fi
+if [ ${#node_pkg_workspaces[@]} -gt 0 ]; then
+    printf "%b Found Node package workspaces for: %s\n" ${UNICORN_EMOJI} "$(IFS=' '; echo "${node_pkg_workspaces[*]}")"
 fi
 
 trap "cleanup" EXIT
@@ -490,17 +513,30 @@ if [ ${#python_pkg_names[@]} -gt 0 ]; then
   done
 fi
 
-for diracx_compatible_pkg in "${diracx_and_extensions_pkgs[@]}"; do
-  json+="\"$diracx_compatible_pkg\","
-
-done
+if [ ${#diracx_and_extensions_pkgs[@]} -gt 0 ]; then
+  for diracx_compatible_pkg in "${diracx_and_extensions_pkgs[@]}"; do
+    json+="\"$diracx_compatible_pkg\","
+  done
+fi
 
 json="${json%,}]"
 sed "s#{{ mounted_python_modules }}#${json}#g" "${demo_dir}/values.yaml.bak" > "${demo_dir}/values.yaml"
 mv "${demo_dir}/values.yaml" "${demo_dir}/values.yaml.bak"
 
-# Add the node package
-sed "s/{{ node_module_to_mount }}/${node_pkg_name}/g" "${demo_dir}/values.yaml.bak" > "${demo_dir}/values.yaml"
+# Add the node package and its workspaces
+sed "s#{{ node_module_to_mount }}#${node_pkg_name}#g" "${demo_dir}/values.yaml.bak" > "${demo_dir}/values.yaml"
+mv "${demo_dir}/values.yaml" "${demo_dir}/values.yaml.bak"
+
+json="["
+if [ ${#node_pkg_workspaces[@]} -gt 0 ]; then
+  for workspace in "${node_pkg_workspaces[@]}"; do
+    json+="\"$workspace\","
+  done
+fi
+json="${json%,}]"
+printf "%b Node workspaces json: %s\n" ${UNICORN_EMOJI} "${json}"
+sed "s#{{ node_module_workspaces }}#${json}#g" "${demo_dir}/values.yaml.bak" > "${demo_dir}/values.yaml"
+
 
 # Final check
 if grep '{{' "${demo_dir}/values.yaml"; then
